@@ -179,7 +179,7 @@ import os
 import json
 
 xai_api_key = "arya-8J0kYtRh5NOTXIjT9SLy_WwhA-eHWGK8Brbpovm7nGg"
-API_BASE = "http://localhost:8000"  # Change to your FastAPI base URL
+API_BASE = "https://ai-loan-underwriting.onrender.com"  # Change to your FastAPI base URL
 
 personal_docs = {
     "Driving License": "driving_license",
