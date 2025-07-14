@@ -180,7 +180,7 @@ if all_uploaded:
                     url = "https://aiagents.aryaxai.com/api/v1/run/de1e6e41-d47c-422b-b388-3ca469314bac"
                     payload = {"output_type": "chat"}
                     headers = {"Content-Type": "application/json", "x-api-key": xai_api_key}
-                    response = requests.post(url, json=payload, headers=headers, timeout=400)
+                    response = requests.post(url, json=payload, headers=headers, timeout=600)
                     response.raise_for_status()
 
                     try:
