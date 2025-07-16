@@ -1,11 +1,16 @@
 import streamlit as st
 import requests
-from typing import Tuple
+from typing import Tuple, List, Dict
 import time
 import os
 import json
 
-xai_api_key = os.environ.get('XAI_API_KEY')
+# ====================
+# Configuration & Secrets
+# ====================
+
+uw_flow_api_key = os.environ.get('UW_FLOW_API_KEY')
+uw_chat_api_key = os.environ.get('UW_CHAT_API_KEY')
 API_BASE = os.environ.get('BACKEND_API_BASE')
 
 personal_docs = {
@@ -21,23 +26,30 @@ bank_docs = {
 all_docs = {**personal_docs, **bank_docs}
 
 # ====================
-# Session Init (No Changes)
+# Session Init
 # ====================
+# Initialize document upload status
 for dtype in all_docs.values():
     if f"{dtype}_status" not in st.session_state:
         st.session_state[f"{dtype}_status"] = "Not Uploaded"
         st.session_state[f"{dtype}_msg"] = ""
         st.session_state[f"{dtype}_filename"] = ""
 
+# Initialize final processing and chat state
 if "final_status" not in st.session_state:
     st.session_state.final_status = "not_clicked"
     st.session_state.final_result = ""
+if "show_chat" not in st.session_state:
+    st.session_state.show_chat = False
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
 
 # ====================
-# Upload Function (No Changes)
+# API Call Functions
 # ====================
 def upload_file(file, dtype: str) -> Tuple[bool, str]:
+    """Handles uploading a file to the correct backend endpoint."""
     try:
         if dtype in ["driving_license", "ssn"]:
             url = f"{API_BASE}/upload_personal_documents"
@@ -59,10 +71,58 @@ def upload_file(file, dtype: str) -> Tuple[bool, str]:
         return False, str(e)
 
 
+def get_chatbot_response(user_prompt: str, analysis_context: str, chat_history: List[Dict]) -> str:
+    """
+    Calls the Aryaxai chatbot API to get a response.
+    """
+    # --- API Configuration ---
+    # TODO: For better security, move your API key to Streamlit secrets (`st.secrets["CHAT_API_KEY"]`)
+    # and avoid hardcoding it in the script.
+    
+    url = "https://underwritingagentchatoyzy1b9xjp.aryaxai.com/api/v1/run/cbf60110-1c17-4951-b5ee-170ca3624694"
+
+    headers = {
+        "Content-Type": "application/json",
+        "x-api-key": uw_chat_api_key
+    }
+
+    # NOTE: The provided API structure takes a single 'input_value'.
+    # It does not appear to have a field for sending the conversation history or the analysis context.
+    # If your API supports history (e.g., via a session_id), you would modify the payload here.
+    payload = {
+        "input_value": user_prompt,
+        "output_type": "chat",
+        "input_type": "chat",
+    }
+
+    try:
+        # --- Send API Request ---
+        response = requests.post(url, json=payload, headers=headers, timeout=60)
+        response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
+
+        # --- Parse the Response ---
+        response_data = response.json()
+        
+        # Navigate through the nested JSON to get the final text message
+        chat_response = response_data['outputs'][0]['outputs'][0]['results']['message']['data']['text']
+        return chat_response
+
+    except requests.exceptions.HTTPError as http_err:
+        return f"❌ **HTTP Error:** {http_err}. Response: `{response.text}`"
+    except requests.exceptions.RequestException as req_err:
+        return f"❌ **Request Error:** An error occurred while communicating with the API: {req_err}"
+    except (KeyError, IndexError, TypeError):
+        # This handles cases where the response JSON structure is not what we expect
+        return f"❌ **Parsing Error:** The API response format was unexpected. Full response: `{response.text}`"
+    except json.JSONDecodeError:
+        return f"❌ **JSON Error:** Failed to decode the API response. Response: `{response.text}`"
+
+
 # ====================
 # Helper UI Functions
 # ====================
 def get_status_ui(status: str, filename: str):
+    """Displays the status of a document upload."""
     if status == "Success":
         st.success(f"✅ Success! `{filename}` is uploaded.", icon="✅")
     elif status == "Error":
@@ -71,6 +131,7 @@ def get_status_ui(status: str, filename: str):
         st.warning("⏳ Waiting for document upload.", icon="⏳")
 
 def doc_uploader_ui(label: str, dtype: str, file_types=["pdf", "png", "jpg"]):
+    """Renders the UI for a single document uploader."""
     with st.container(border=True):
         col1, col2 = st.columns([5, 4])
         with col1:
@@ -90,11 +151,8 @@ def doc_uploader_ui(label: str, dtype: str, file_types=["pdf", "png", "jpg"]):
         if uploaded_file and st.session_state[f"{dtype}_status"] != "Success":
             with st.spinner(f"Uploading {uploaded_file.name}..."):
                 success, msg = upload_file(uploaded_file, dtype)
-                if success:
-                    st.session_state[f"{dtype}_status"] = "Success"
-                    st.session_state[f"{dtype}_filename"] = uploaded_file.name
-                else:
-                    st.session_state[f"{dtype}_status"] = "Error"
+                st.session_state[f"{dtype}_status"] = "Success" if success else "Error"
+                st.session_state[f"{dtype}_filename"] = uploaded_file.name if success else ""
                 st.session_state[f"{dtype}_msg"] = msg
                 st.rerun()
         
@@ -132,7 +190,6 @@ st.markdown("""
 
 
 # --- Header ---
-# st.image("https://storage.googleapis.com/gemini-prod/images/1c3a7266-94b6-4b6d-8a25-45c36312a8a8", use_container_width=True)
 st.title("AI Loan Underwriting Assistant")
 st.markdown("Welcome! Let's get started. Upload the required documents to begin the AI-powered underwriting process.")
 
@@ -161,51 +218,92 @@ with col2:
         doc_uploader_ui(label, dtype)
 
 
-# --- Final Processing Section ---
+# --- Final Processing and Chat Section ---
 all_uploaded = all(st.session_state[f"{dtype}_status"] == "Success" for dtype in all_docs.values())
 
 if all_uploaded:
     st.markdown("<br>", unsafe_allow_html=True)
-    # st.balloons()
     
     if st.session_state.final_status == "not_clicked":
         if st.button("**Launch AI Analysis**"):
             st.session_state.final_status = "processing"
             st.rerun()
 
-    if st.session_state.final_status in ["processing", "done"]:
+    if st.session_state.final_status == "processing":
         with st.spinner("The AI is analyzing the documents... This can take a moment."):
-            if st.session_state.final_status == "processing":
+            try:
+                url = "https://aiagents.aryaxai.com/api/v1/run/de1e6e41-d47c-422b-b388-3ca469314bac"
+                payload = {"output_type": "chat"}
+                headers = {"Content-Type": "application/json", "x-api-key": uw_flow_api_key}
+                response = requests.post(url, json=payload, headers=headers, timeout=600)
+                response.raise_for_status()
                 try:
-                    url = "https://aiagents.aryaxai.com/api/v1/run/de1e6e41-d47c-422b-b388-3ca469314bac"
-                    payload = {"output_type": "chat"}
-                    headers = {"Content-Type": "application/json", "x-api-key": xai_api_key}
-                    response = requests.post(url, json=payload, headers=headers, timeout=600)
-                    response.raise_for_status()
-
-                    try:
-                        data = response.json()
-                        st.session_state.final_result = data['outputs'][0]['outputs'][0]['results']['message']['data']['text']
-                    except (json.JSONDecodeError, KeyError, IndexError):
-                        st.session_state.final_result = f"⚠️ **Failed to parse response:**\n\n```json\n{response.text}\n```"
-
-                except requests.exceptions.Timeout:
-                    st.session_state.final_result = "❌ **Request Timed Out:** The process took too long to complete."
-                except requests.exceptions.HTTPError as http_err:
-                    st.session_state.final_result = f"❌ **HTTP Error:** {http_err}\n\n**Response:**\n`{response.text}`"
-                except Exception as e:
-                    st.session_state.final_result = f"❌ **An Unexpected Error Occurred:** {str(e)}"
-                
-                st.session_state.final_status = "done"
-                st.rerun()
+                    data = response.json()
+                    st.session_state.final_result = data['outputs'][0]['outputs'][0]['results']['message']['data']['text']
+                except (json.JSONDecodeError, KeyError, IndexError):
+                    st.session_state.final_result = f"⚠️ **Failed to parse response:**\n\n```json\n{response.text}\n```"
+            except requests.exceptions.Timeout:
+                st.session_state.final_result = "❌ **Request Timed Out:** The process took too long to complete."
+            except requests.exceptions.HTTPError as http_err:
+                st.session_state.final_result = f"❌ **HTTP Error:** {http_err}\n\n**Response:**\n`{response.text}`"
+            except Exception as e:
+                st.session_state.final_result = f"❌ **An Unexpected Error Occurred:** {str(e)}"
+            
+            st.session_state.final_status = "done"
+            st.rerun()
 
     if st.session_state.final_status == "done":
         st.markdown("---")
-        st.subheader("Analysis Results")
-        with st.container(border=True):
+        st.subheader("Analysis & Chat")
+
+        # Make the analysis results collapsible
+        with st.expander("📄 View AI Analysis", expanded=True):
             st.markdown(st.session_state.final_result)
-            if st.button("🔄 Start New Application"):
-                # Clear all session state to reset the app
-                for key in list(st.session_state.keys()):
-                    del st.session_state[key]
+
+        # Show button to initiate chat
+        if not st.session_state.show_chat:
+            if st.button("💬 Chat with your analysis"):
+                st.session_state.show_chat = True
+                # Add a welcome message to the chat
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": "Hello! I'm ready to answer your questions about the analysis. What would you like to know?"
+                })
                 st.rerun()
+
+        # Chat interface logic
+        if st.session_state.show_chat:
+            st.markdown("---")
+            
+            # Display existing chat messages
+            for message in st.session_state.messages:
+                with st.chat_message(message["role"]):
+                    st.markdown(message["content"])
+
+            # Get user input via st.chat_input
+            if prompt := st.chat_input("Ask a follow-up question..."):
+                # Add user message to history and display it
+                st.session_state.messages.append({"role": "user", "content": prompt})
+                with st.chat_message("user"):
+                    st.markdown(prompt)
+
+                # Get and display assistant response
+                with st.chat_message("assistant"):
+                    with st.spinner("Thinking..."):
+                        response = get_chatbot_response(
+                            user_prompt=prompt,
+                            analysis_context=st.session_state.final_result,
+                            chat_history=st.session_state.messages
+                        )
+                        st.markdown(response)
+                
+                # Add assistant response to history
+                st.session_state.messages.append({"role": "assistant", "content": response})
+        
+        # Reset button
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🔄 Start New Application"):
+            # Clear all session state to reset the app
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
