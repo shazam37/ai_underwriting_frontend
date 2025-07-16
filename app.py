@@ -300,10 +300,18 @@ if all_uploaded:
                 # Add assistant response to history
                 st.session_state.messages.append({"role": "assistant", "content": response})
         
-        # Reset button
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🔄 Start New Application"):
-            # Clear all session state to reset the app
+        # Reset button at the bottom
+        # st.markdown("<br>", unsafe_allow_html=True)
+        # if st.button("🔄 Start New Application"):
+        #     # Clear all session state to reset the app
+        #     for key in list(st.session_state.keys()):
+        #         del st.session_state[key]
+        #     st.rerun()
+
+        # Reset button at the side
+        st.sidebar.markdown("---")
+        st.sidebar.header("Actions")
+        if st.sidebar.button("🔄 Start New Application"):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
