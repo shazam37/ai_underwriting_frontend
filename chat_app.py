@@ -9,7 +9,8 @@ import json
 # Configuration & Secrets
 # ====================
 # Ensure these are set in your environment or Streamlit secrets
-xai_api_key = os.environ.get('XAI_API_KEY')
+uw_chat_api_key = os.environ.get('UW_CHAT_API_KEY')
+uw_flow_api_key = os.environ.get('UW_FLOW_API_KEY')
 API_BASE = os.environ.get('BACKEND_API_BASE')
 
 # Define the sequence of documents to be collected
@@ -78,7 +79,7 @@ def run_final_analysis():
     try:
         url = "https://aiagents.aryaxai.com/api/v1/run/de1e6e41-d47c-422b-b388-3ca469314bac"
         payload = {"output_type": "chat"}
-        headers = {"Content-Type": "application/json", "x-api-key": xai_api_key}
+        headers = {"Content-Type": "application/json", "x-api-key": uw_flow_api_key}
         response = requests.post(url, json=payload, headers=headers, timeout=600)
         response.raise_for_status()
         data = response.json()
@@ -87,10 +88,9 @@ def run_final_analysis():
         return f"❌ An error occurred during the final analysis: {str(e)}"
 
 def get_chatbot_response(user_prompt: str):
-    """Calls the interactive chatbot API for conversation."""
-    chat_api_key = "arya-l5jUTUDotgd2F2OGoHxGBtDGB8caFGKOMEDvDxzkROc" # TODO: Move to st.secrets
+    """Calls the interactive chatbot API for conversation.""" 
     url = "https://underwritingagentchatoyzy1b9xjp.aryaxai.com/api/v1/run/cbf60110-1c17-4951-b5ee-170ca3624694"
-    headers = {"Content-Type": "application/json", "x-api-key": chat_api_key}
+    headers = {"Content-Type": "application/json", "x-api-key": uw_chat_api_key}
     payload = {"input_value": user_prompt, "output_type": "chat", "input_type": "chat"}
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=60)
