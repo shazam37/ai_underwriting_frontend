@@ -9,12 +9,14 @@ import json
 # Configuration & Secrets
 # ====================
 # Ensure these are set in your environment or Streamlit secrets
+uw_flow_url = os.environ.get('UW_FLOW_URL')
+uw_chat_url = os.environ.get('UW_CHAT_URL')
 uw_chat_api_key = os.environ.get('UW_CHAT_API_KEY')
 uw_flow_api_key = os.environ.get('UW_FLOW_API_KEY')
 API_BASE = os.environ.get('BACKEND_API_BASE')
 
 # Define the sequence of documents to be collected
-DOC_ORDER = ["driving_license", "ssn", "application", "statement"]
+DOC_ORDER = ["driving_license", "ssn", "bank_application", "bank_statement"]
 
 DOC_INFO = {
     "driving_license": {
@@ -25,14 +27,14 @@ DOC_INFO = {
     "ssn": {
         "prompt": "Great. Now, please upload a document with your **Social Security Number**.",
         "api_type": "personal",
-        "next_stage": "application"
+        "next_stage": "bank_application"
     },
-    "application": {
+    "bank_application": {
         "prompt": "Thank you. Next, please upload the completed **Bank Application** form.",
         "api_type": "bank",
-        "next_stage": "statement"
+        "next_stage": "bank_statement"
     },
-    "statement": {
+    "bank_statement": {
         "prompt": "Almost done. Finally, please upload your latest **Bank Statement**.",
         "api_type": "bank",
         "next_stage": "analysis_pending" # All docs collected, next is analysis
@@ -49,6 +51,8 @@ def init_session_state():
         st.session_state.messages = []
     if "doc_upload_stage" not in st.session_state:
         st.session_state.doc_upload_stage = DOC_ORDER[0]
+    if "upload_retries" not in st.session_state:
+        st.session_state.upload_retries = 0
 
 # ====================
 # API Call Functions
@@ -67,8 +71,13 @@ def upload_file(file, doc_type: str, api_type: str):
 
         files = {"file": (file.name, file, file.type)}
         response = requests.post(url, files=files, params=params, timeout=60)
+        print(f'Here is the respone : {response.text}')
         response.raise_for_status()
-        return True, response.json().get("message", "Success")
+        response = json.loads(response.text)['success']
+        if response == True:
+            return True, response
+        elif response == False:
+            return False, f"Incorrect file type provided"
     except requests.exceptions.HTTPError as err:
         return False, f"HTTP Error: {err}. Response: {err.response.text}"
     except Exception as e:
@@ -77,7 +86,7 @@ def upload_file(file, doc_type: str, api_type: str):
 def run_final_analysis():
     """Triggers the main analysis after all documents are uploaded."""
     try:
-        url = "https://aiagents.aryaxai.com/api/v1/run/de1e6e41-d47c-422b-b388-3ca469314bac"
+        url = uw_flow_url
         payload = {"output_type": "chat"}
         headers = {"Content-Type": "application/json", "x-api-key": uw_flow_api_key}
         response = requests.post(url, json=payload, headers=headers, timeout=600)
@@ -88,8 +97,9 @@ def run_final_analysis():
         return f"❌ An error occurred during the final analysis: {str(e)}"
 
 def get_chatbot_response(user_prompt: str):
-    """Calls the interactive chatbot API for conversation.""" 
-    url = "https://underwritingagentchatoyzy1b9xjp.aryaxai.com/api/v1/run/cbf60110-1c17-4951-b5ee-170ca3624694"
+    """Calls the interactive chatbot API for conversation."""
+    
+    url = uw_chat_url
     headers = {"Content-Type": "application/json", "x-api-key": uw_chat_api_key}
     payload = {"input_value": user_prompt, "output_type": "chat", "input_type": "chat"}
     try:
@@ -143,11 +153,13 @@ else:
         uploaded_file = st.file_uploader(
             f"Upload your document",
             type=["pdf", "png", "jpg", "jpeg"],
-            key=f"uploader_{current_stage}"
+            # key=f"uploader_{current_stage}"
+            key=f"uploader_{current_stage}_{st.session_state.upload_retries}"
         )
         if uploaded_file:
             with st.spinner(f"Uploading and verifying `{uploaded_file.name}`..."):
                 success, msg = upload_file(uploaded_file, current_stage, info["api_type"])
+                print(f'upload_status: {success} with message: {msg}')
                 if success:
                     st.session_state.messages.append({"role": "user", "content": f"Uploaded `{uploaded_file.name}`"})
                     st.session_state.doc_upload_stage = info["next_stage"]
@@ -158,6 +170,8 @@ else:
                         st.session_state.messages.append({"role": "assistant", "content": "All documents received. I will now begin the final analysis. Please wait a moment."})
                 else:
                     st.session_state.messages.append({"role": "assistant", "content": f"There was an error with your upload: {msg}. Please try again."})
+                    st.session_state.upload_retries += 1  # Reset uploader by changing key
+                    st.rerun()
                 st.rerun()
 
     # --- Handle Final Analysis Stage ---
