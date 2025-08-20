@@ -89,7 +89,7 @@ def run_final_analysis():
         url = uw_flow_url
         payload = {"output_type": "chat"}
         headers = {"Content-Type": "application/json", "x-api-key": uw_flow_api_key}
-        response = requests.post(url, json=payload, headers=headers, timeout=600)
+        response = requests.post(url, json=payload, headers=headers, timeout=1000)
         response.raise_for_status()
         data = response.json()
         return data['outputs'][0]['outputs'][0]['results']['message']['data']['text']
@@ -103,7 +103,7 @@ def get_chatbot_response(user_prompt: str):
     headers = {"Content-Type": "application/json", "x-api-key": uw_chat_api_key}
     payload = {"input_value": user_prompt, "output_type": "chat", "input_type": "chat"}
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=60)
+        response = requests.post(url, json=payload, headers=headers, timeout=100)
         response.raise_for_status()
         response_data = response.json()
         return response_data['outputs'][0]['outputs'][0]['results']['message']['data']['text']
