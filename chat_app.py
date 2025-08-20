@@ -92,7 +92,10 @@ def run_final_analysis():
         response = requests.post(url, json=payload, headers=headers, timeout=1000)
         response.raise_for_status()
         data = response.json()
-        return data['outputs'][0]['outputs'][0]['results']['message']['data']['text']
+        try:
+            return data['outputs'][0]['outputs'][0]['results']['message']['data']['text']
+        except Exception as e:
+            return f"There was an issue in fetching documents. Please try again."
     except Exception as e:
         return f"❌ An error occurred during the final analysis: {str(e)}"
 
