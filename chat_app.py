@@ -4,6 +4,7 @@ from typing import List, Dict
 import time
 import os
 import json
+import concurrent.futures
 
 # ====================
 # Configuration & Secrets
@@ -84,18 +85,52 @@ def upload_file(file, doc_type: str, api_type: str):
         return False, f"An unexpected error occurred: {str(e)}"
 
 def run_final_analysis():
-    """Triggers the main analysis after all documents are uploaded."""
-    try:
+    """Triggers the main analysis after all documents are uploaded using robust waiting logic."""
+    
+    # Inner function that does the heavy lifting (blocking)
+    def _make_request():
         url = uw_flow_url
         payload = {"output_type": "chat"}
         headers = {"Content-Type": "application/json", "x-api-key": uw_flow_api_key}
-        response = requests.post(url, json=payload, headers=headers, timeout=1000)
-        response.raise_for_status()
-        data = response.json()
-        try:
-            return data['outputs'][0]['outputs'][0]['results']['message']['data']['text']
-        except Exception as e:
-            return f"There was an issue in fetching documents. Please try again."
+        # Keeping your original timeout of 1000
+        return requests.post(url, json=payload, headers=headers, timeout=1000)
+
+    try:
+        # Create a placeholder for the "Loading" status
+        status_placeholder = st.empty()
+        start_time = time.time()
+        
+        # Run request in a separate thread
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(_make_request)
+            
+            # Loop while the thread is running.
+            while not future.done():
+                elapsed = int(time.time() - start_time)
+                # Styled card with light background (#F0F8FF) and dark text (#000000)
+                status_placeholder.markdown(
+                    f"""
+                    <div style="padding: 1rem; border: 2px solid #00BFFF; border-radius: 10px; background: #F0F8FF; color: #000000; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+                        <h3 style="margin: 0; color: #000000;">⏳ Running Final Analysis...</h3>
+                        <p style="margin: 5px 0 0 0;">Time elapsed: <b>{elapsed} seconds</b></p>
+                        <p style="font-size: 0.8em; margin: 5px 0 0 0; color: #333333;"><i>Please do not refresh the page. This may take a few minutes.</i></p>
+                    </div>
+                    """, 
+                    unsafe_allow_html=True
+                )
+                time.sleep(2) # Wait 2 seconds before updating again
+            
+            # Once done, get result and clear placeholder
+            response = future.result()
+            status_placeholder.empty()
+
+            response.raise_for_status()
+            data = response.json()
+            try:
+                return data['outputs'][0]['outputs'][0]['results']['message']['data']['text']
+            except Exception as e:
+                return f"There was an issue in fetching documents. Please try again."
+
     except Exception as e:
         return f"❌ An error occurred during the final analysis: {str(e)}"
 
@@ -140,7 +175,7 @@ else:
 
     # --- Reset Button ---
     if st.sidebar.button("🔄 Start Over"):
-        for key in st.session_state.keys():
+        for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
 
@@ -179,12 +214,12 @@ else:
 
     # --- Handle Final Analysis Stage ---
     elif current_stage == "analysis_pending":
-        with st.spinner("Performing final analysis on all documents... This may take a moment."):
-            analysis_result = run_final_analysis()
-            st.session_state.messages.append({"role": "assistant", "content": analysis_result})
-            st.session_state.messages.append({"role": "assistant", "content": "The initial analysis is complete. You can now ask me any questions you have."})
-            st.session_state.doc_upload_stage = "chat_active"
-            st.rerun()
+        # Removed st.spinner since run_final_analysis now handles the UI updates directly
+        analysis_result = run_final_analysis()
+        st.session_state.messages.append({"role": "assistant", "content": analysis_result})
+        st.session_state.messages.append({"role": "assistant", "content": "The initial analysis is complete. You can now ask me any questions you have."})
+        st.session_state.doc_upload_stage = "chat_active"
+        st.rerun()
 
     # --- Handle Active Chat Stage ---
     elif current_stage == "chat_active":
