@@ -10,11 +10,20 @@ import concurrent.futures
 # Configuration & Secrets
 # ====================
 # Ensure these are set in your environment or Streamlit secrets
-uw_flow_url = os.environ.get('UW_FLOW_URL')
+
+# Configuration for different model flows (New)
+CUSTOM_MODEL_FLOW_URL = os.environ.get('CUSTOM_MODEL_FLOW_URL')
+CUSTOM_MODEL_FLOW_API_KEY = os.environ.get('CUSTOM_MODEL_FLOW_API_KEY')
+NON_CUSTOM_MODEL_FLOW_URL = os.environ.get('NON_CUSTOM_MODEL_FLOW_URL')
+NON_CUSTOM_MODEL_FLOW_API_KEY = os.environ.get('NON_CUSTOM_MODEL_FLOW_API_KEY')
+
+# Chat API configuration (Unchanged)
 uw_chat_url = os.environ.get('UW_CHAT_URL')
 uw_chat_api_key = os.environ.get('UW_CHAT_API_KEY')
-uw_flow_api_key = os.environ.get('UW_FLOW_API_KEY')
+
+# Backend for file uploads (Unchanged)
 API_BASE = os.environ.get('BACKEND_API_BASE')
+
 
 # Define the sequence of documents to be collected
 DOC_ORDER = ["driving_license", "ssn", "bank_application", "bank_statement"]
@@ -54,6 +63,9 @@ def init_session_state():
         st.session_state.doc_upload_stage = DOC_ORDER[0]
     if "upload_retries" not in st.session_state:
         st.session_state.upload_retries = 0
+    # New: Add selected_model to session state
+    if "selected_model" not in st.session_state:
+        st.session_state.selected_model = "Custom Model"
 
 # ====================
 # API Call Functions
@@ -84,15 +96,26 @@ def upload_file(file, doc_type: str, api_type: str):
     except Exception as e:
         return False, f"An unexpected error occurred: {str(e)}"
 
-def run_final_analysis():
-    """Triggers the main analysis after all documents are uploaded using robust waiting logic."""
-    
+# =============================================================================
+# MODIFIED FUNCTION: run_final_analysis
+# =============================================================================
+def run_final_analysis(model_type: str):
+    """
+    Triggers the main analysis based on the selected model.
+    Uses a thread and loop to keep the UI updating so the connection doesn't time out.
+    """
+    if model_type == "Custom Model":
+        url = CUSTOM_MODEL_FLOW_URL
+        api_key = CUSTOM_MODEL_FLOW_API_KEY
+    else:  # Non-Custom Model
+        url = NON_CUSTOM_MODEL_FLOW_URL
+        api_key = NON_CUSTOM_MODEL_FLOW_API_KEY
+
+    payload = {"output_type": "chat"}
+    headers = {"Content-Type": "application/json", "x-api-key": api_key}
+
     # Inner function that does the heavy lifting (blocking)
     def _make_request():
-        url = uw_flow_url
-        payload = {"output_type": "chat"}
-        headers = {"Content-Type": "application/json", "x-api-key": uw_flow_api_key}
-        # Keeping your original timeout of 1000
         return requests.post(url, json=payload, headers=headers, timeout=1000)
 
     try:
@@ -107,11 +130,11 @@ def run_final_analysis():
             # Loop while the thread is running.
             while not future.done():
                 elapsed = int(time.time() - start_time)
-                # Styled card with light background (#F0F8FF) and dark text (#000000)
+                # UPDATED: Status message now includes the model type
                 status_placeholder.markdown(
                     f"""
                     <div style="padding: 1rem; border: 2px solid #00BFFF; border-radius: 10px; background: #F0F8FF; color: #000000; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
-                        <h3 style="margin: 0; color: #000000;">⏳ Running Final Analysis...</h3>
+                        <h3 style="margin: 0; color: #000000;">⏳ Running {model_type} Analysis...</h3>
                         <p style="margin: 5px 0 0 0;">Time elapsed: <b>{elapsed} seconds</b></p>
                         <p style="font-size: 0.8em; margin: 5px 0 0 0; color: #333333;"><i>Please do not refresh the page. This may take a few minutes.</i></p>
                     </div>
@@ -132,7 +155,7 @@ def run_final_analysis():
                 return f"There was an issue in fetching documents. Please try again."
 
     except Exception as e:
-        return f"❌ An error occurred during the final analysis: {str(e)}"
+        return f"❌ An error occurred during the final analysis with {model_type}: {str(e)}"
 
 def get_chatbot_response(user_prompt: str):
     """Calls the interactive chatbot API for conversation."""
@@ -173,11 +196,24 @@ if not st.session_state.app_started:
 else:
     st.title("AI Loan Underwriting Assistant")
 
-    # --- Reset Button ---
-    if st.sidebar.button("🔄 Start Over"):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
-        st.rerun()
+    # --- Sidebar --- (MODIFIED)
+    with st.sidebar:
+        st.markdown("## Controls")
+        if st.button("🔄 Start Over", use_container_width=True):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
+        
+        st.markdown("---")
+        
+        # New: Add model selection radio button
+        st.markdown("## Model Selection")
+        model_choice = st.radio(
+            "Choose the analysis model:",
+            ("Custom Model", "Non-Custom Model"),
+            key='model_selection',
+            on_change=lambda: st.session_state.update(selected_model=st.session_state.model_selection)
+        )
 
     # --- Display Chat History ---
     for message in st.session_state.messages:
@@ -191,7 +227,6 @@ else:
         uploaded_file = st.file_uploader(
             f"Upload your document",
             type=["pdf", "png", "jpg", "jpeg"],
-            # key=f"uploader_{current_stage}"
             key=f"uploader_{current_stage}_{st.session_state.upload_retries}"
         )
         if uploaded_file:
@@ -212,10 +247,10 @@ else:
                     st.rerun()
                 st.rerun()
 
-    # --- Handle Final Analysis Stage ---
+    # --- Handle Final Analysis Stage --- (MODIFIED)
     elif current_stage == "analysis_pending":
-        # Removed st.spinner since run_final_analysis now handles the UI updates directly
-        analysis_result = run_final_analysis()
+        # Pass the selected model from session state to the function
+        analysis_result = run_final_analysis(st.session_state.selected_model)
         st.session_state.messages.append({"role": "assistant", "content": analysis_result})
         st.session_state.messages.append({"role": "assistant", "content": "The initial analysis is complete. You can now ask me any questions you have."})
         st.session_state.doc_upload_stage = "chat_active"
