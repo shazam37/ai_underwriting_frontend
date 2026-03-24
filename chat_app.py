@@ -76,17 +76,38 @@ def upload_file(file, doc_type: str, api_type: str):
 
         files = {"file": (file.name, file, file.type)}
         response = requests.post(url, files=files, params=params, timeout=60)
+
+        # 🔍 DEBUG (very important)
+        print("STATUS:", response.status_code)
+        print("RAW RESPONSE:", response.text)
+
         response.raise_for_status()
 
-        success = json.loads(response.text)['success']
+        # ✅ SAFE JSON PARSE
+        try:
+            data = response.json()
+        except Exception:
+            return False, f"Invalid JSON from server: {response.text}"
 
-        if success:
+        # ✅ VALIDATE STRUCTURE
+        if not isinstance(data, dict):
+            return False, f"Unexpected response format: {data}"
+
+        # ✅ FLEXIBLE SUCCESS CHECK
+        if data.get("success") is True:
             return True, "Success"
-        else:
-            return False, "Incorrect file"
+
+        # fallback support (in case backend uses different key)
+        if data.get("status") == "ok":
+            return True, "Success"
+
+        return False, data.get("message", "Upload failed")
+
+    except requests.exceptions.HTTPError as err:
+        return False, f"HTTP Error: {err.response.text}"
 
     except Exception as e:
-        return False, str(e)
+        return False, f"Upload failed: {str(e)}"
 
 # ====================
 # FINAL ANALYSIS
