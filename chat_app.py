@@ -123,7 +123,7 @@ def run_final_analysis(model_type: str):
     headers = {"Content-Type": "application/json", "x-api-key": api_key}
 
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=None)
+        response = requests.post(url, json=payload, headers=headers, timeout=1200)
         response.raise_for_status()
         data = response.json()
         return data['outputs'][0]['outputs'][0]['results']['message']['data']['text']
