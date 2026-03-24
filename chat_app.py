@@ -4,7 +4,7 @@ from typing import List, Dict
 import time
 import os
 import json
-import threading  # ✅ NEW
+import threading
 
 # ====================
 # Configuration
@@ -89,7 +89,7 @@ def upload_file(file, doc_type: str, api_type: str):
         return False, str(e)
 
 # ====================
-# FINAL ANALYSIS (SIMPLIFIED)
+# FINAL ANALYSIS
 # ====================
 
 def run_final_analysis(model_type: str):
@@ -198,13 +198,14 @@ else:
             else:
                 st.error(msg)
 
-    # -------- ANALYSIS (FIXED) --------
+    # -------- ANALYSIS (FIXED CLEAN) --------
     elif stage == "analysis_pending":
 
         if "analysis_started" not in st.session_state:
             st.session_state.analysis_started = True
             st.session_state.analysis_done = False
             st.session_state.final_result = None
+            st.session_state.last_refresh = time.time()
 
             def task():
                 result = run_final_analysis(st.session_state.selected_model)
@@ -215,8 +216,12 @@ else:
 
         if not st.session_state.analysis_done:
             st.info("⏳ Running analysis... please wait")
-            time.sleep(3)
-            st.rerun()
+
+            if time.time() - st.session_state.last_refresh > 3:
+                st.session_state.last_refresh = time.time()
+                st.rerun()
+
+            st.stop()
 
         if st.session_state.analysis_done:
             st.session_state.messages.append({
@@ -230,6 +235,12 @@ else:
             })
 
             st.session_state.doc_upload_stage = "chat_active"
+
+            del st.session_state.analysis_started
+            del st.session_state.analysis_done
+            del st.session_state.final_result
+            del st.session_state.last_refresh
+
             st.rerun()
 
     # -------- CHAT --------
