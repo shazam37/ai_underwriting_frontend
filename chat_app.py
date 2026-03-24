@@ -61,6 +61,10 @@ def init_session_state():
     if "selected_model" not in st.session_state:
         st.session_state.selected_model = "Custom Model"
 
+    # ✅ FIX: track last uploaded file
+    if "last_uploaded_file" not in st.session_state:
+        st.session_state.last_uploaded_file = None
+
 # ====================
 # Upload
 # ====================
@@ -77,42 +81,28 @@ def upload_file(file, doc_type: str, api_type: str):
         files = {"file": (file.name, file, file.type)}
         response = requests.post(url, files=files, params=params, timeout=60)
 
-        # 🔍 DEBUG (optional but useful)
-        print("STATUS:", response.status_code)
-        print("RAW RESPONSE:", response.text)
-
         response.raise_for_status()
 
-        # 🔥 HANDLE EMPTY / NULL RESPONSE
+        # handle empty response safely
         if not response.text or response.text.strip() in ["null", "None", ""]:
-            return True, "Upload successful (no response body)"
+            return True, "Upload successful"
 
-        # 🔥 SAFE JSON PARSE
         try:
             data = response.json()
         except Exception:
-            return True, "Upload successful (non-JSON response)"
+            return True, "Upload successful"
 
-        # 🔥 HANDLE None JSON
         if data is None:
-            return True, "Upload successful (empty JSON)"
+            return True, "Upload successful"
 
-        # 🔥 NORMAL CASE
         if isinstance(data, dict):
             if data.get("success") is True:
                 return True, "Success"
-
-            # fallback (some APIs use different key)
             if data.get("status") == "ok":
                 return True, "Success"
-
             return False, data.get("message", "Upload failed")
 
-        # 🔥 fallback (unexpected but valid)
         return True, "Upload successful"
-
-    except requests.exceptions.HTTPError as err:
-        return False, f"HTTP Error: {err.response.text}"
 
     except Exception as e:
         return False, f"Upload failed: {str(e)}"
@@ -205,10 +195,14 @@ else:
         info = DOC_INFO[stage]
         file = st.file_uploader("Upload file")
 
-        if file:
+        # ✅ FIX: prevent auto-trigger
+        if file and file.name != st.session_state.last_uploaded_file:
+
             success, msg = upload_file(file, stage, info["api_type"])
 
             if success:
+                st.session_state.last_uploaded_file = file.name  # ✅ CRITICAL
+
                 st.session_state.messages.append({"role": "user", "content": file.name})
                 st.session_state.doc_upload_stage = info["next_stage"]
 
@@ -227,7 +221,7 @@ else:
             else:
                 st.error(msg)
 
-    # -------- ANALYSIS (FIXED CLEAN) --------
+    # -------- ANALYSIS --------
     elif stage == "analysis_pending":
 
         if "analysis_started" not in st.session_state:
