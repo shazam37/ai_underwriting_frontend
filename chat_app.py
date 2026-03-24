@@ -77,31 +77,39 @@ def upload_file(file, doc_type: str, api_type: str):
         files = {"file": (file.name, file, file.type)}
         response = requests.post(url, files=files, params=params, timeout=60)
 
-        # 🔍 DEBUG (very important)
+        # 🔍 DEBUG (optional but useful)
         print("STATUS:", response.status_code)
         print("RAW RESPONSE:", response.text)
 
         response.raise_for_status()
 
-        # ✅ SAFE JSON PARSE
+        # 🔥 HANDLE EMPTY / NULL RESPONSE
+        if not response.text or response.text.strip() in ["null", "None", ""]:
+            return True, "Upload successful (no response body)"
+
+        # 🔥 SAFE JSON PARSE
         try:
             data = response.json()
         except Exception:
-            return False, f"Invalid JSON from server: {response.text}"
+            return True, "Upload successful (non-JSON response)"
 
-        # ✅ VALIDATE STRUCTURE
-        if not isinstance(data, dict):
-            return False, f"Unexpected response format: {data}"
+        # 🔥 HANDLE None JSON
+        if data is None:
+            return True, "Upload successful (empty JSON)"
 
-        # ✅ FLEXIBLE SUCCESS CHECK
-        if data.get("success") is True:
-            return True, "Success"
+        # 🔥 NORMAL CASE
+        if isinstance(data, dict):
+            if data.get("success") is True:
+                return True, "Success"
 
-        # fallback support (in case backend uses different key)
-        if data.get("status") == "ok":
-            return True, "Success"
+            # fallback (some APIs use different key)
+            if data.get("status") == "ok":
+                return True, "Success"
 
-        return False, data.get("message", "Upload failed")
+            return False, data.get("message", "Upload failed")
+
+        # 🔥 fallback (unexpected but valid)
+        return True, "Upload successful"
 
     except requests.exceptions.HTTPError as err:
         return False, f"HTTP Error: {err.response.text}"
